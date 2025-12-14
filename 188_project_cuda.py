@@ -51,7 +51,8 @@ class OurJitterDataset():
 #### LSTM
 #lets roll out the model
 class OurLSTM(nn.Module):
-    def __init__(self, hidden, num_layers):
+    def __init__(self, hidden, num_layers,window): #im just including window here bc it makes it easier in the class loop below b.c. the transformer does need this argument
+  
         super().__init__()
         self.lstm=nn.LSTM(2,hidden_size=hidden, num_layers=num_layers,batch_first=True)
         self.out_proj=nn.Linear(hidden,2)
@@ -61,7 +62,7 @@ class OurLSTM(nn.Module):
         return self.out_proj(final_hidden_state[-1]) #last layer hidden state, equiv to [0] for us cuz we just have 1 layer
 #### LSTM+CNN
 class OurCNNLSTM(nn.Module):
-    def __init__(self, hidden, num_layers):
+    def __init__(self, hidden, num_layers,window):
         super().__init__()
         self.conv= nn.Conv1d(2,32,kernel_size=5,padding=2)  
         self.lstm= nn.LSTM(32,hidden_size=hidden,num_layers=num_layers,batch_first=True)
@@ -75,18 +76,19 @@ class OurCNNLSTM(nn.Module):
         return self.out_proj(final_hidden_state[-1])
 #### TRANSF
 class OurTransformer(nn.Module):
-    def __init__(self, hidden, num_layers):
+    def __init__(self, hidden, num_layers,window):
         super().__init__()
         self.input_proj=nn.Linear(2,hidden)
+        self.positional_embedding = nn.Parameter( torch.randn(  1,window,hidden  ) *.01 )      # heres what i forgot before. now i fixed this s.t. theres positional embedding. also i added .01* s.t. this positional embedding doesnt totally overshadow the x values. u cud also use nn.Embedding. also i wrote 1 for ther first entry in torch.randn bc itll broadcast to however many samples is fed to the model anyway
         encoder_layer=nn.TransformerEncoderLayer(d_model=hidden,nhead=4,batch_first=True)
         self.transformer= nn.TransformerEncoder(encoder_layer,num_layers=num_layers)
         self.out_proj= nn.Linear(hidden,2)
     
     def forward(self,x):
-        x= self.input_proj(x)         
+        x= self.input_proj(x)   + self.positional_embedding  # ok now i pushed in the positional embedding. so thats now baked into the transformer encoder, s.t. the attn can acciunt for positional encoding, st the final step of the attn has encoded WHEN the sequence's other values occured 
         x= self.transformer(x)         
         return self.out_proj(x[:, -1])   #last timestep
-                    
+                 
 
 
 #the 3 hyperparams to vary
@@ -97,7 +99,11 @@ for gap in [5,10,20]:
         our_dataset = OurJitterDataset(our_data,window,gap)
         train_size=int(.8*len(our_dataset))
             
-        train_data,test_data= torch.utils.data.random_split(our_dataset,[train_size,len(our_dataset)-train_size])
+        train_data = torch.utils.data.Subset(our_dataset, range(train_size)) #take in  the indices. this'll work w the class i made, unlike our_dataset[:train_size], since we gotta __getitem__ as integer indices, not slice
+        test_data = torch.utils.data.Subset(our_dataset, range(train_size,len(our_dataset)))
+        ###BAD###train_data,test_data= torch.utils.data.random_split(our_dataset,[train_size,len(our_dataset)-train_size])
+
+
         train_loader= DataLoader(train_data,batch_size=batch_siz,shuffle=True)
         test_loader= DataLoader(test_data,batch_size=batch_siz,shuffle=True)
 
@@ -106,7 +112,7 @@ for gap in [5,10,20]:
             for model_class in [OurLSTM, OurCNNLSTM , OurTransformer]:
             # for model_class in [OurTransformer, OurLSTM, OurCNNLSTM]:
 
-                our_model = model_class(hidden,num_layers) #instantiating and initializing the model based on the model class which we loop over
+                our_model = model_class(hidden,num_layers,window) #instantiating and initializing the model based on the model class which we loop over
                 our_model = our_model.to(device) # passing model to GPU if available; else, CPU
                 torch.cuda.synchronize() # for good measure
                 # -------------------------------------------
@@ -186,6 +192,7 @@ for gap in [5,10,20]:
                 
                 #all the plots!!!! all plots are gonna get saved into the directory, so the folder we store this file in 
                 plt.savefig(f"outputs/plot_{model_class.__name__}_gap{gap}_window{window}_num_layers{num_layers}")                        #turns out u gotta save before showing lest u get an empty plot. also use the name dunders to avoid those classic ugly brackets u get othewise
+                plt.close()
                 #lets save the trained model. lemme just give it unmistakeable names:
                 torch.save(our_model.state_dict(), f"outputs/params_{model_class.__name__}_gap{gap}_window{window}_num_layers{num_layers}")
 
