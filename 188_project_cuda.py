@@ -37,7 +37,7 @@ class OurJitterDataset():
         self.window=window
         self.gap=gap
 
-    def __len__(self): #i use this s.t. i can run .random_split down below
+    def __len__(self): #i use this s.t. i can run .random_split down below 
         return len(self.data)-self.window-self.gap #also this makes it so we dont go outside the data!
     
     def __getitem__(self,i):
@@ -58,13 +58,13 @@ class OurLSTM(nn.Module):
         self.out_proj=nn.Linear(hidden,2)
 
     def forward(self,x):
-        output_of_the_lstm,(final_hidden_state,more_irrelevant_stuff)= self.lstm(x)  #
+        output_of_the_lstm,(final_hidden_state,more_irrelevant_stuff)= self.lstm(x)  #LSTM outputs the output (which is all the h's, but we dont need all), as well as the short term memory h and the cell c. but we only care about the last short term mem bc thats whats actually needed for prediction 
         return self.out_proj(final_hidden_state[-1]) #last layer hidden state, equiv to [0] for us cuz we just have 1 layer
 #### LSTM+CNN
 class OurCNNLSTM(nn.Module):
     def __init__(self, hidden, num_layers,window):
         super().__init__()
-        self.conv= nn.Conv1d(2,32,kernel_size=5,padding=2)  
+        self.conv= nn.Conv1d(2,32,kernel_size=5,padding=2)  #simply combining cnn w lstm. 
         self.lstm= nn.LSTM(32,hidden_size=hidden,num_layers=num_layers,batch_first=True)
         self.out_proj= nn.Linear(hidden, 2)
     
@@ -151,7 +151,7 @@ for gap in [5,10,20]:
                     test_errors=[] #this is rmse
 
                     #lets look at the rmse
-                    with torch.no_grad(): #just makes the runs a little faster by disabling the whole computational graph stuff. it matters alot actually when u run big models.
+                    with torch.no_grad(): #just makes the runs a little faster by disabling the whole computational graph gradient tracking. it matters alot actually when u run big models.
                         for inp,target in train_loader:
                             pred= our_model(inp)
                             train_errors.append((pred-target).detach().cpu().numpy())
@@ -161,7 +161,7 @@ for gap in [5,10,20]:
                     train_rmse_list_x.append(rmse_x)
                     train_rmse_list_y.append(rmse_y)
 
-
+                    #this is all pretty standard stuff. its just checking errors. and the .no_grad() is because we dont need to waste memory on tracking gradients when were not running any backward pass anyway
                     with torch.no_grad():
                         for inp,target in test_loader:
                             pred= our_model(inp)
