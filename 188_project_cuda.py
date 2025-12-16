@@ -16,7 +16,7 @@ df= dataframe = pd.read_feather("combined_centroid_data.feather")
 x=df["Centroid_X"].values #.values is a pd attribute #gta take .values attribute to remove all the indexing, just returns array
 y=df["Centroid_Y"].values
 our_data= np.stack([x,y], axis=1) #stack invents a new axis, we tryna couple the [x_i y_i]
-our_data = reduced_size= our_data[:20000] #the paper didnt use all the gazilliopn timesteps, theu used 10**5 i think. but it'll take way to long to run for our purposes, like several days.
+our_data = reduced_size= our_data[:25000] #the paper didnt use all the gazilliopn timesteps, theu used 10**5. but it'll take way to long to run for our purposes, like several days for sure on cpu, and probably over a day on gpu.
 print("heres what the dataframe looks like btw:")
 print(df[:10])
 print(x)
@@ -29,8 +29,9 @@ epochs= 100 #if it doesnt converge, i gotta adjust
 batch_siz= 128 #just depending on speed mostly, big minib. faster
 lr=.002
 hidden=64 #REMEMBER THIS GOTTA B DIVIDISIBLE B nhead WHICH I PUT AS 4 FOR THRANDFORMER
-#lets create a class to return input and output data 
 
+
+#lets create a class to return input and output data. not necessary, but i think it lookw pretty clean
 class OurJitterDataset():
     def __init__(self,data,window,gap):
         self.data=data
@@ -41,7 +42,7 @@ class OurJitterDataset():
         return len(self.data)-self.window-self.gap #also this makes it so we dont go outside the data!
     
     def __getitem__(self,i):
-        input= torch.tensor(self.data[i:i+self.window], dtype=torch.float32) #thisll b 600,2
+        input= torch.tensor(self.data[i:i+self.window], dtype=torch.float32) #thisll b 600,2 or howevr long we want our window to be.
         output=torch.tensor( self.data[i+self.window+self.gap], dtype=torch.float32) #thisll b 2,. the output prediction
         input = input.to(device) # if GPU is available, move to GPU
         output = output.to(device)
@@ -59,18 +60,23 @@ class OurLSTM(nn.Module):
 
     def forward(self,x):
         output_of_the_lstm,(final_hidden_state,more_irrelevant_stuff)= self.lstm(x)  #LSTM outputs the output (which is all the h's, but we dont need all), as well as the short term memory h and the cell c. but we only care about the last short term mem bc thats whats actually needed for prediction 
-        return self.out_proj(final_hidden_state[-1]) #last layer hidden state, equiv to [0] for us cuz we just have 1 layer
+        return self.out_proj(final_hidden_state[-1]) #final_hidden_staete gives us last hidden state of each layer, so equiv to [0] in the case where we just have 1 layer. 
 #### LSTM+CNN
-class OurCNNLSTM(nn.Module):
+class OurCNNLSTM(nn.Module): 
+    #combine cnn and lstm. however, realize nn.Conv1d doesnt take in (batch,seq_len,feature). 
+    #instead, cnn's have the feature dim and the seq_len dim flipped. that's why im permuting the order of the data inside the forward pass
+    #btw feature_vectors is called "channels" by cnn ppl bc u have 3 "channels" in RGB
+    #anyway, having the kernel to be 5 is pretty standard, and its pretty common to just pad up the data so u have the same amount of inputs as outputs
+    #altho in this case it doesnt matter bc the lstm will eat it up regardless of whether the output has a different seq_len
     def __init__(self, hidden, num_layers,window):
-        super().__init__()
-        self.conv= nn.Conv1d(2,32,kernel_size=5,padding=2)  #simply combining cnn w lstm. 
+        super().__init__() 
+        self.conv= nn.Conv1d(2,32,kernel_size=5,padding="same")   
         self.lstm= nn.LSTM(32,hidden_size=hidden,num_layers=num_layers,batch_first=True)
         self.out_proj= nn.Linear(hidden, 2)
     
     def forward(self, x):
         x= x.permute(0,2,1)        
-        x= torch.relu(self.conv(x))  
+        x= torch.relu(self.conv(x))   #you have to do an actuvation fn after nn.Conv1d bc nn.Conv1d just has sliding dot products, which is a linear operation. 
         x= x.permute(0,2,1)      
         output_of_the_lstm,(final_hidden_state,more_irrelevant_stuff)= self.lstm(x)
         return self.out_proj(final_hidden_state[-1])
@@ -85,7 +91,7 @@ class OurTransformer(nn.Module):
         self.out_proj= nn.Linear(hidden,2)
     
     def forward(self,x):
-        x= self.input_proj(x)   + self.positional_embedding  # ok now i pushed in the positional embedding. so thats now baked into the transformer encoder, s.t. the attn can acciunt for positional encoding, st the final step of the attn has encoded WHEN the sequence's other values occured 
+        x= self.input_proj(x)   + self.positional_embedding  # i pushed in the positional embedding. so thats now baked into the transformer encoder, s.t. the attn can account for positional encoding, st the final step of the attn has encoded WHEN the sequence's other values occured 
         x= self.transformer(x)         
         return self.out_proj(x[:, -1])   #last timestep
                  
